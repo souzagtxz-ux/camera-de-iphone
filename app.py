@@ -4,102 +4,114 @@ import cv2
 import numpy as np
 import av
 
-# Configurações de página para esconder menus do Streamlit
-st.set_page_config(page_title="Camera iOS", layout="wide", initial_sidebar_state="collapsed")
+# 1. SETUP E TELA SEMPRE LIGADA (JavaScript)
+st.set_page_config(page_title="Souza Cam Pro", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS para Clonar a Interface do iPhone
+# Script para manter a tela do celular ligada (Wake Lock API)
+st.components.v1.html("""
+    <script>
+    async function keepScreenOn() {
+        try {
+            const wakeLock = await navigator.wakeLock.request('screen');
+            console.log('Tela Bloqueada: Sempre Ligada');
+        } catch (err) {
+            console.log('Erro no WakeLock: ' + err.message);
+        }
+    }
+    keepScreenOn();
+    </script>
+""", height=0)
+
+# 2. CSS DA INTERFACE IPHONE (Igual ao que você pediu)
 st.markdown("""
     <style>
     #MainMenu, footer, header {visibility: hidden;}
     .stApp { background-color: #000; }
     
-    /* Container do Visor da Câmera */
-    .video-view {
-        position: fixed; top: 10%; width: 100%; height: 65%;
-        z-index: 1; display: flex; justify-content: center;
-    }
-
-    /* Interface Superior (Flash, Live, HDR) */
-    .top-ui {
-        position: fixed; top: 0; width: 100%; height: 80px;
+    .ios-header {
+        position: fixed; top: 0; width: 100%; height: 60px;
         display: flex; justify-content: space-around; align-items: center;
-        color: white; z-index: 10; font-family: sans-serif;
+        color: white; z-index: 100; background: black;
     }
 
-    /* Seletor de Zoom (0.6, 1x, 2) */
-    .zoom-ui {
-        position: fixed; bottom: 26%; width: 100%;
-        display: flex; justify-content: center; gap: 15px; z-index: 10;
+    video {
+        width: 100% !important;
+        height: 65vh !important;
+        object-fit: cover !important;
+        margin-top: 60px;
     }
-    .zoom-circle {
-        background: rgba(0,0,0,0.5); border-radius: 50%; width: 35px; height: 35px;
+
+    .ios-footer {
+        position: fixed; bottom: 0; width: 100%; height: 240px;
+        background: black; z-index: 90;
+    }
+
+    .zoom-bar {
+        position: fixed; bottom: 190px; width: 100%;
+        display: flex; justify-content: center; gap: 10px; z-index: 100;
+    }
+    .z-unit {
+        background: rgba(30,30,30,0.9); border-radius: 50%; width: 35px; height: 35px;
         display: flex; align-items: center; justify-content: center;
-        font-size: 11px; color: white; border: 1px solid rgba(255,255,255,0.2);
+        font-size: 11px; color: white; border: 1px solid #333;
     }
+    .z-active { border: 1px solid #FFCC00; color: #FFCC00; }
 
-    /* Modos de Câmera (FOTO em amarelo) */
-    .modes-ui {
-        position: fixed; bottom: 18%; width: 100%;
-        display: flex; justify-content: center; gap: 20px;
-        font-size: 13px; font-weight: bold; z-index: 10;
-    }
-
-    /* Botão de Disparo (Círculo Duplo) */
     div.stButton > button {
         border-radius: 50% !important;
         width: 80px !important; height: 80px !important;
-        border: 4px solid white !important;
-        background-color: transparent !important;
-        position: fixed !important; bottom: 40px !important;
+        border: 5px solid white !important;
+        background: transparent !important;
+        position: fixed !important; bottom: 35px !important;
         left: 50% !important; transform: translateX(-50%) !important;
-        z-index: 20 !important;
+        z-index: 100 !important;
     }
-    
-    /* Ajuste para o componente de vídeo aparecer no meio */
-    iframe { border-radius: 0px !important; }
+    div.stButton > button::after {
+        content: ""; display: block; width: 62px; height: 62px;
+        background: white; border-radius: 50%; margin: auto;
+    }
     </style>
     
-    <div class="top-ui">
+    <div class="ios-header">
         <span>⚡</span> <span style="color:#FFCC00">🟡 LIVE</span> <span>HDR</span>
     </div>
-    
-    <div class="zoom-ui">
-        <div class="zoom-circle">0.6</div>
-        <div class="zoom-circle" style="color:#FFCC00; border-color:#FFCC00">1x</div>
-        <div class="zoom-circle">2</div>
+
+    <div class="zoom-bar">
+        <div class="z-unit">0.6</div>
+        <div class="z-unit z-active">1x</div>
+        <div class="z-unit">2</div>
     </div>
 
-    <div class="modes-ui">
-        <span style="opacity:0.5">VÍDEO</span>
-        <span style="color:#FFCC00">FOTO</span>
-        <span style="opacity:0.5">RETRATO</span>
+    <div class="ios-footer">
+        <div style="display:flex; justify-content:center; gap:20px; margin-top:15px; color:white; font-weight:bold; font-size:13px;">
+            <span style="opacity:0.5">VÍDEO</span> <span style="color:#FFCC00">FOTO</span> <span style="opacity:0.5">RETRATO</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-# Lógica de Filtros (Dramático Frio + Nitidez)
-def engine_iphone(frame):
+# 3. FILTRO IPHONE (Dramático Frio + Nitidez)
+def engine_pro(frame):
     img = frame.to_ndarray(format="bgr24")
-    
-    # Filtro Dramático Frio (iOS Style)
-    img = cv2.convertScaleAbs(img, alpha=1.2, beta=-10)
-    img[:, :, 0] = cv2.add(img[:, :, 0], 25) # Realce Azul
-    
-    # Nitidez Pro
+    # Sharpening
     kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
     img = cv2.filter2D(img, -1, kernel)
-    
+    # Filtro Frio
+    img = cv2.convertScaleAbs(img, alpha=1.2, beta=-5)
+    img[:, :, 0] = cv2.add(img[:, :, 0], 20)
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Componente de Câmera (O "START" que você viu vira o visor aqui)
+# 4. VISOR (Configuração para abrir direto)
 webrtc_streamer(
-    key="iphone-pro",
+    key="iphone-screen-on",
     mode=WebRtcMode.SENDRECV,
-    video_frame_callback=engine_iphone,
-    media_stream_constraints={"video": {"facingMode": "environment"}, "audio": False},
+    video_frame_callback=engine_pro,
+    media_stream_constraints={
+        "video": {"facingMode": "environment"},
+        "audio": False
+    },
     async_processing=True,
     rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# Botão de Disparo (O botão invisível do Streamlit que ativa o design CSS)
 if st.button(" "):
-    st.toast("📸 Foto capturada!")
+    st.toast("📸 Capturado!")
