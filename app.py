@@ -3,102 +3,103 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import cv2
 import numpy as np
 import av
-import io
-from PIL import Image
+import time
 
-st.set_page_config(page_title="Camera", layout="wide", initial_sidebar_state="collapsed")
+# 1. CONFIGURAÇÃO DE TELA E PERMISSÕES
+st.set_page_config(page_title="Souza Cam", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS para criar as molduras pretas (Top e Bottom bars)
+# CSS para Interface iPhone com Filtros embaixo
 st.markdown("""
     <style>
     #MainMenu, footer, header {visibility: hidden;}
     .stApp { background-color: #000; }
     
-    /* Moldura superior preta */
+    /* Visor da Câmera */
+    .video-container {
+        position: fixed; top: 80px; width: 100%; height: 60vh;
+        z-index: 1; border-radius: 20px; overflow: hidden;
+    }
+
+    /* Interface Superior */
     .ios-header {
-        height: 80px; background: #000;
-        display: flex; justify-content: space-around; align-items: center;
-        position: fixed; top: 0; width: 100%; z-index: 1000;
-        color: white; font-size: 18px;
+        position: fixed; top: 0; width: 100%; height: 80px;
+        background: #000; display: flex; justify-content: space-around;
+        align-items: center; color: white; z-index: 10;
     }
 
-    /* Ajuste do visor da câmera para não ocupar a tela toda */
-    video {
-        object-fit: cover;
-        margin-top: 80px; /* Desce a imagem para baixo da barra preta */
-        height: calc(100vh - 300px) !important; /* Corta para caber a barra de baixo */
-        width: 100% !important;
+    /* Interface Inferior (Fundo Preto) */
+    .ios-bottom {
+        position: fixed; bottom: 0; width: 100%; height: 280px;
+        background: #000; z-index: 10; display: flex; flex-direction: column;
+        align-items: center;
     }
 
-    /* Moldura inferior preta (onde ficam os botões) */
-    .ios-footer {
-        height: 220px; background: #000;
-        position: fixed; bottom: 0; width: 100%; z-index: 1000;
+    /* Botão de Disparo */
+    .shutter-btn {
+        width: 75px; height: 75px; border-radius: 50%;
+        border: 5px solid white; background: transparent;
+        display: flex; align-items: center; justify-content: center;
+        margin-top: 20px;
     }
+    .shutter-inner { width: 60px; height: 60px; background: white; border-radius: 50%; }
 
-    /* Seletores de Zoom dentro da imagem */
-    .zoom-float {
-        position: fixed; bottom: 240px; width: 100%;
-        display: flex; justify-content: center; gap: 10px; z-index: 1001;
-    }
-    .z-btn {
-        background: rgba(0,0,0,0.5); border-radius: 50%; width: 32px; height: 32px;
-        color: white; font-size: 10px; display: flex; align-items: center; justify-content: center;
-    }
-
-    /* Modos e Botão no fundo preto */
-    .mode-list {
-        position: fixed; bottom: 130px; width: 100%;
-        display: flex; justify-content: center; gap: 20px;
-        color: white; font-weight: bold; font-size: 13px; z-index: 1001;
-    }
-    .mode-yellow { color: #FFCC00; }
-
-    div.stButton > button {
-        border-radius: 50% !important;
-        width: 75px !important; height: 75px !important;
-        border: 4px solid white !important;
-        background: transparent !important;
-        position: fixed !important; bottom: 35px !important;
-        left: 50% !important; transform: translateX(-50%) !important;
-        z-index: 1002;
-    }
-    div.stButton > button::after {
-        content: ""; display: block; width: 60px; height: 60px;
-        background: white; border-radius: 50%; margin: auto;
-    }
+    /* Indicador de Live Photo */
+    .live-icon { color: #FFCC00; font-weight: bold; font-size: 12px; }
     </style>
     
     <div class="ios-header">
-        <span>⚡</span> <span>H̅D̅R̅</span> <span>🟡</span> <span><i class="fa fa-chevron-up"></i></span>
-    </div>
-
-    <div class="zoom-float">
-        <div class="z-btn">0.5</div> <div class="z-btn" style="border:1px solid #FFCC00">1x</div> <div class="z-btn">2</div>
-    </div>
-
-    <div class="ios-footer">
-        <div class="mode-list">
-            <span style="opacity:0.6">VÍDEO</span>
-            <span class="mode-yellow">FOTO</span>
-            <span style="opacity:0.6">RETRATO</span>
-        </div>
+        <span>⚡</span> <span class="live-icon">🟡 LIVE</span> <span>HDR</span>
     </div>
     """, unsafe_allow_html=True)
 
-def engine_iphone_style(frame):
+# 2. LÓGICA DE FILTROS (BOTÕES QUE SIMULAM O SWIPE)
+if 'filtro_atual' not in st.session_state:
+    st.session_state.filtro_atual = "PADRÃO"
+
+# Barra de Modos/Filtros (Em cima do botão de disparo)
+cols = st.columns([1,1,1,1])
+with st.container():
+    st.markdown('<div style="height: 150px;"></div>', unsafe_allow_html=True) # Espaçador
+    c1, c2, c3, c4 = st.columns(4)
+    if c1.button("VÍVIDO"): st.session_state.filtro_atual = "VÍVIDO"
+    if c2.button("DRAMÁTICO"): st.session_state.filtro_atual = "DRAMÁTICO"
+    if c3.button("FRIO"): st.session_state.filtro_atual = "FRIO"
+    if c4.button("P&B"): st.session_state.filtro_atual = "P&B"
+
+# 3. MOTOR DE IMAGEM COM FILTROS IPHONE
+def callback(frame):
     img = frame.to_ndarray(format="bgr24")
-    # Aplica o Dramático Frio
-    img = cv2.convertScaleAbs(img, alpha=1.2, beta=-10)
-    img[:, :, 0] = cv2.add(img[:, :, 0], 20)
+    f = st.session_state.filtro_atual
+    
+    # Efeito de Nitidez (Base)
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    img = cv2.filter2D(img, -1, kernel)
+
+    if f == "VÍVIDO":
+        img = cv2.convertScaleAbs(img, alpha=1.2, beta=10)
+    elif f == "DRAMÁTICO":
+        img = cv2.convertScaleAbs(img, alpha=1.4, beta=-20)
+    elif f == "FRIO":
+        img[:, :, 0] = cv2.add(img[:, :, 0], 30)
+    elif f == "P&B":
+        img = cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+        
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
+# 4. O VISOR (Aqui resolve a permissão)
 webrtc_streamer(
-    key="iphone-layout",
-    video_frame_callback=engine_iphone_style,
-    media_stream_constraints={"video": {"facingMode": "environment"}},
-    async_processing=True
+    key="souza-pro-final",
+    mode=WebRtcMode.SENDRECV,
+    video_frame_callback=callback,
+    media_stream_constraints={
+        "video": {"facingMode": "environment"}, # Força câmera traseira
+        "audio": False
+    },
+    async_processing=True,
+    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-if st.button(" "):
-    st.toast("📸 Foto Salva!")
+# 5. BOTÃO DE DISPARO (LIVE PHOTO)
+if st.button("CAPTAR"):
+    st.balloons()
+    st.toast("🟡 LIVE PHOTO CAPTURADA!")
